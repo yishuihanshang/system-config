@@ -18,54 +18,37 @@ $DefaultConfig = @"
 # 只需维护这个列表，脚本会自动处理安装和重装
 
 software:
-  # 游戏平台
-  - id: Valve.Steam
-    name: Steam
-    uninstall_names: ["Steam"]
-    
-  - id: EpicGames.EpicGamesLauncher
-    name: Epic Games Launcher
-    uninstall_names: ["Epic Games Launcher"]
-    
+  - id: Microsoft.OneDrive
+    name: OneDrive
+    uninstall_names: ["Microsoft OneDrive"]
+
+  - id: Google.Chrome
+    name: Google Chrome
+    uninstall_names: ["Google Chrome"]
+
+   - id: Tencent.QQ.NT
+    name: QQ
+    uninstall_names: ["QQ"]
+
+  - id: Tencent.WeChat
+    name: 微信
+    uninstall_names: ["WeChat"]
+
   - id: Discord.Discord
     name: Discord
     uninstall_names: ["Discord"]
 
-  # 浏览器
-  - id: Google.Chrome
-    name: Google Chrome
-    uninstall_names: ["Google Chrome"]
-    
-  - id: Mozilla.Firefox
-    name: Mozilla Firefox
-    uninstall_names: ["Mozilla Firefox"]
-
-  # 实用工具
   - id: 7zip.7zip
     name: 7-Zip
     uninstall_names: ["7-Zip"]
     
-  - id: VideoLAN.VLC
-    name: VLC media player
-    uninstall_names: ["VLC media player"]
-    
-  - id: WinRAR.WinRAR
-    name: WinRAR
-    uninstall_names: ["WinRAR"]
+  - id: Notepad++.Notepad++
+    name: Notepad++
+    uninstall_names: ["Notepad++"]
 
-  # 下载工具
-  - id: qBittorrent.qBittorrent
-    name: qBittorrent
-    uninstall_names: ["qBittorrent"]
-
-  # 通信工具
-  - id: Tencent.QQ
-    name: QQ
-    uninstall_names: ["QQ"]
-    
-  - id: WeChat.WeChat
-    name: 微信
-    uninstall_names: ["WeChat"]
+  - id: Kingsoft.WPSOffice
+    name: WPS Office
+    uninstall_names: ["WPS Office"]
 "@
 
 # 解析YAML配置的简单函数
