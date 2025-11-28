@@ -101,67 +101,39 @@ function Parse-YamlConfig {
     return $softwareList
 }
 
-# 显示下载进度的函数
-function Show-DownloadProgress {
-    param(
-        [string]$SoftwareName,
-        [int]$TimeoutSeconds = 600
-    )
-    
-    Write-Host "📥 开始下载: $SoftwareName..." -ForegroundColor Cyan
-    
-    $startTime = Get-Date
-    $dots = 0
-    $maxDots = 3
-    
-    # 显示下载动画，直到超时
-    while (((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
-        $dots = ($dots + 1) % ($maxDots + 1)
-        $progress = "." * $dots + " " * ($maxDots - $dots)
-        Write-Host "`r🔄 下载中$progress" -NoNewline -ForegroundColor Yellow
-        Start-Sleep -Seconds 1
-    }
-    
-    Write-Host ""  # 换行
-}
-
-# 带进度显示的安装函数
+# 简化的安装函数（不使用后台作业）
 function Install-WithProgress {
     param(
         [string]$SoftwareId,
         [string]$SoftwareName,
-        [int]$TimeoutSeconds = 600
+        [int]$TimeoutSeconds = 300
     )
     
     Write-Host "📥 开始安装: $SoftwareName..." -ForegroundColor Green
     
     try {
-        # 创建后台作业执行安装
-        $jobScript = {
-            param($id)
-            $process = Start-Process -FilePath "winget" -ArgumentList @(
-                "install", "--id", $id, "--source", "winget", "--silent",
-                "--disable-interactivity", "--accept-package-agreements", "--accept-source-agreements"
-            ) -PassThru -NoNewWindow -Wait
-            return @{
-                ExitCode = $process.ExitCode
-                Success = ($process.ExitCode -eq 0)
-            }
-        }
+        # 创建临时文件来记录安装状态
+        $tempFile = [System.IO.Path]::GetTempFileName()
         
-        $job = Start-Job -ScriptBlock $jobScript -ArgumentList $SoftwareId
+        # 启动安装进程
+        $process = Start-Process -FilePath "winget" -ArgumentList @(
+            "install", "--id", $SoftwareId, "--source", "winget", "--silent",
+            "--disable-interactivity", "--accept-package-agreements", "--accept-source-agreements"
+        ) -PassThru -NoNewWindow
         
-        # 显示安装进度动画
+        # 显示进度动画
         $startTime = Get-Date
         $dots = 0
         $maxDots = 3
         $phase = 1  # 1=下载, 2=安装
         
-        while ($job.State -eq "Running" -and ((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
+        Write-Host "🌐 开始下载..." -ForegroundColor Cyan
+        
+        while (-not $process.HasExited -and ((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
             $dots = ($dots + 1) % ($maxDots + 1)
             $progress = "." * $dots + " " * ($maxDots - $dots)
             
-            # 根据时间切换阶段提示（前2/3时间显示下载，后1/3显示安装）
+            # 根据时间切换阶段提示
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
             if ($elapsed -lt ($TimeoutSeconds * 2 / 3)) {
                 if ($phase -ne 1) {
@@ -182,36 +154,163 @@ function Install-WithProgress {
         
         Write-Host ""  # 换行
         
-        if ($job.State -eq "Running") {
+        if (-not $process.HasExited) {
             # 超时处理
             Write-Host "⏰ $SoftwareName 安装超时，强制终止..." -ForegroundColor Red
-            Remove-Job $job -Force
+            $process.Kill()
+            Start-Sleep -Seconds 2
             return $false
         } else {
-            # 获取安装结果
-            $result = Receive-Job $job
-            Remove-Job $job -Force
+            # 获取退出代码
+            $exitCode = $process.ExitCode
             
-            if ($result.Success) {
+            if ($exitCode -eq 0) {
                 Write-Host "✅ $SoftwareName 下载并安装成功" -ForegroundColor Green
                 return $true
             } else {
-                Write-Host "❌ $SoftwareName 安装失败，退出代码: $($result.ExitCode)" -ForegroundColor Red
+                Write-Host "❌ $SoftwareName 安装失败，退出代码: $exitCode" -ForegroundColor Red
                 
                 # 根据退出代码提供更多信息
-                switch ($result.ExitCode) {
-                    0x8A150011 { Write-Host "💡 提示: 软件可能已安装或存在冲突" -ForegroundColor Yellow }
-                    0x8A150004 { Write-Host "💡 提示: 找不到指定的软件包" -ForegroundColor Yellow }
-                    default { Write-Host "💡 提示: 请检查网络连接和系统权限" -ForegroundColor Yellow }
+                switch ($exitCode) {
+                    0x8A150011 { 
+                        Write-Host "💡 提示: 软件可能已安装或存在冲突" -ForegroundColor Yellow
+                        Write-Host "💡 解决方案: 尝试手动卸载后重新安装" -ForegroundColor White
+                    }
+                    0x8A150004 { 
+                        Write-Host "💡 提示: 找不到指定的软件包" -ForegroundColor Yellow
+                        Write-Host "💡 解决方案: 检查软件ID是否正确" -ForegroundColor White
+                    }
+                    0x8A150007 { 
+                        Write-Host "💡 提示: 安装被用户取消" -ForegroundColor Yellow
+                    }
+                    default { 
+                        Write-Host "💡 提示: 请检查网络连接和系统权限" -ForegroundColor Yellow
+                        Write-Host "💡 解决方案: 以管理员身份运行或检查防火墙设置" -ForegroundColor White
+                    }
                 }
                 
                 return $false
             }
         }
+        
+        # 清理临时文件
+        if (Test-Path $tempFile) {
+            Remove-Item $tempFile -Force
+        }
+        
     } catch {
         Write-Host "❌ $SoftwareName 安装异常: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "💡 解决方案: 尝试手动安装或检查系统环境" -ForegroundColor Yellow
         return $false
     }
+}
+
+# 检查软件是否已安装
+function Test-SoftwareInstalled {
+    param(
+        [string]$SoftwareId,
+        [string[]]$UninstallNames
+    )
+    
+    # 方法1: 通过 Winget 检查
+    try {
+        $null = winget list --id $SoftwareId --exact -s winget 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            return $true
+        }
+    } catch {
+        # 忽略检查错误
+    }
+    
+    # 方法2: 通过注册表检查
+    if ($UninstallNames) {
+        foreach ($uninstallName in $UninstallNames) {
+            try {
+                $uninstallPaths = @(
+                    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+                )
+                
+                foreach ($path in $uninstallPaths) {
+                    $items = Get-ItemProperty $path -ErrorAction SilentlyContinue | 
+                             Where-Object { $_.DisplayName -like "*$uninstallName*" }
+                    if ($items) {
+                        return $true
+                    }
+                }
+            } catch {
+                # 静默处理错误
+            }
+        }
+    }
+    
+    return $false
+}
+
+# 卸载软件
+function Uninstall-Software {
+    param(
+        [string]$SoftwareId,
+        [string]$SoftwareName,
+        [string[]]$UninstallNames
+    )
+    
+    Write-Host "🗑️  正在卸载: $SoftwareName..." -ForegroundColor Magenta
+    
+    $uninstalled = $false
+    
+    # 方法1: 通过 Winget 卸载
+    if ($SoftwareId) {
+        try {
+            winget uninstall --id $SoftwareId --exact -s winget --silent
+            Write-Host "✅  Winget 卸载完成" -ForegroundColor Green
+            $uninstalled = $true
+            Start-Sleep -Seconds 2
+        } catch {
+            Write-Host "⚠️  Winget 卸载失败，尝试其他方法..." -ForegroundColor Yellow
+        }
+    }
+    
+    # 方法2: 通过控制面板卸载
+    if ($UninstallNames -and -not $uninstalled) {
+        foreach ($uninstallName in $UninstallNames) {
+            try {
+                # 查找卸载命令
+                $uninstallPaths = @(
+                    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+                )
+                
+                foreach ($path in $uninstallPaths) {
+                    $items = Get-ItemProperty $path -ErrorAction SilentlyContinue | 
+                             Where-Object { $_.DisplayName -like "*$uninstallName*" }
+                    
+                    foreach ($item in $items) {
+                        if ($item.UninstallString) {
+                            Write-Host "🔧 执行卸载命令..." -ForegroundColor Cyan
+                            $uninstallString = $item.UninstallString
+                            
+                            # 处理常见的卸载命令格式
+                            if ($uninstallString -match '^"([^"]+)"') {
+                                $uninstallExe = $matches[1]
+                                $uninstallArgs = $uninstallString.Substring($matches[0].Length)
+                                Start-Process -FilePath $uninstallExe -ArgumentList "$uninstallArgs /S" -Wait
+                            } else {
+                                Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$uninstallString /S`"" -Wait
+                            }
+                            
+                            $uninstalled = $true
+                            Start-Sleep -Seconds 3
+                        }
+                    }
+                }
+            } catch {
+                Write-Host "⚠️  控制面板卸载失败: $uninstallName" -ForegroundColor Red
+            }
+        }
+    }
+    
+    return $uninstalled
 }
 
 # 统一的软件处理函数
@@ -227,52 +326,21 @@ function Process-Software {
     $uninstallNames = $Software.uninstall_names
     
     Write-Host "`n📦 [$Index/$Total] 处理: $name" -ForegroundColor Yellow
+    Write-Host "🔍 软件ID: $id" -ForegroundColor Gray
     
     # 检查是否已安装
-    $isInstalled = $false
-    try {
-        $installed = winget list --id $id --exact -s winget 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            $isInstalled = $true
-            Write-Host "⚠️  检测到已安装，执行卸载..." -ForegroundColor Magenta
-        }
-    } catch {
-        # 忽略检查错误
-    }
+    $isInstalled = Test-SoftwareInstalled -SoftwareId $id -UninstallNames $uninstallNames
     
     # 如果已安装，先卸载
     if ($isInstalled) {
-        try {
-            # 方法1: 通过 Winget 卸载
-            Write-Host "🗑️  正在卸载: $name..." -ForegroundColor Magenta
-            winget uninstall --id $id --exact -s winget --silent
-            Write-Host "✅  Winget 卸载完成" -ForegroundColor Green
-            Start-Sleep -Seconds 2
-        } catch {
-            Write-Host "⚠️  Winget 卸载失败，尝试其他方法..." -ForegroundColor Red
-        }
-        
-        # 方法2: 通过控制面板卸载（备用）
-        if ($uninstallNames) {
-            foreach ($uninstallName in $uninstallNames) {
-                try {
-                    $uninstall = Get-WmiObject -Class Win32_Product | Where-Object { $_.Name -like "*$uninstallName*" }
-                    if ($uninstall) {
-                        Write-Host "🗑️  通过控制面板卸载: $uninstallName" -ForegroundColor Magenta
-                        $uninstall.Uninstall()
-                        Start-Sleep -Seconds 2
-                    }
-                } catch {
-                    # 静默处理错误
-                }
-            }
-        }
+        Write-Host "⚠️  检测到已安装，执行卸载..." -ForegroundColor Magenta
+        Uninstall-Software -SoftwareId $id -SoftwareName $name -UninstallNames $uninstallNames
     } else {
         Write-Host "🆕 软件未安装，直接安装..." -ForegroundColor Cyan
     }
     
-    # 使用带进度显示的安装函数
-    return Install-WithProgress -SoftwareId $id -SoftwareName $name -TimeoutSeconds 600
+    # 使用简化的安装函数
+    return Install-WithProgress -SoftwareId $id -SoftwareName $name -TimeoutSeconds 300
 }
 
 # 主执行逻辑
@@ -294,7 +362,7 @@ try {
     }
     
     Write-Host "🎯 找到 $totalSoftware 个软件待处理" -ForegroundColor Green
-    Write-Host "⏱️  每个软件安装超时时间: 10分钟" -ForegroundColor Cyan
+    Write-Host "⏱️  每个软件安装超时时间: 5分钟" -ForegroundColor Cyan
     Write-Host "💡 如果安装卡住，可以按 Ctrl+C 中断当前安装" -ForegroundColor Yellow
     
     # 按顺序处理每个软件
@@ -303,11 +371,19 @@ try {
     
     for ($i = 0; $i -lt $totalSoftware; $i++) {
         $software = $softwareList[$i]
-        $result = Process-Software -Software $software -Index ($i + 1) -Total $totalSoftware
         
-        if ($result) {
-            $successCount++
-        } else {
+        try {
+            $result = Process-Software -Software $software -Index ($i + 1) -Total $totalSoftware
+            
+            if ($result) {
+                $successCount++
+                Write-Host "✅ 进度: $successCount/$totalSoftware 完成" -ForegroundColor Green
+            } else {
+                $failedList += $software.name
+                Write-Host "❌ 进度: $successCount/$totalSoftware 完成" -ForegroundColor Red
+            }
+        } catch {
+            Write-Host "❌ 处理 $($software.name) 时发生异常: $($_.Exception.Message)" -ForegroundColor Red
             $failedList += $software.name
         }
         
@@ -331,6 +407,12 @@ try {
         Write-Host "   - 软件包不存在或版本不兼容" -ForegroundColor White
         Write-Host "   - 系统权限不足" -ForegroundColor White
         Write-Host "   - 安装包损坏" -ForegroundColor White
+        Write-Host "`n💡 解决方案:" -ForegroundColor Yellow
+        Write-Host "   - 检查网络连接后重试" -ForegroundColor White
+        Write-Host "   - 手动安装失败的软件" -ForegroundColor White
+        Write-Host "   - 确保以管理员身份运行脚本" -ForegroundColor White
+    } else {
+        Write-Host "🎊 所有软件安装成功！" -ForegroundColor Green
     }
     
     Write-Host "`n💡 提示:" -ForegroundColor Yellow
