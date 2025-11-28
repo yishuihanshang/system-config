@@ -1,0 +1,78 @@
+# system-setup.yaml
+properties:
+  configurationVersion: 0.2.4
+  resources:
+    # 启用开发者模式
+    - resource: Microsoft-Windows-DeveloperMode
+      directives:
+        description: "启用开发者模式"
+      settings:
+        Ensure: Enabled
+
+    # 浏览器
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      directives:
+        description: "安装 Chrome 浏览器"
+      settings:
+        id: Google.Chrome
+        source: winget
+
+    # 开发工具
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      directives:
+        description: "安装 VS Code"
+      settings:
+        id: Microsoft.VisualStudioCode
+        source: winget
+
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      directives:
+        description: "安装 Git"
+      settings:
+        id: Git.Git
+        source: winget
+
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      directives:
+        description: "安装 Node.js"
+      settings:
+        id: OpenJS.NodeJS
+        source: winget
+
+    # 常用工具
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      directives:
+        description: "安装 7-Zip"
+      settings:
+        id: 7zip.7zip
+        source: winget
+
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      directives:
+        description: "安装 VLC 播放器"
+      settings:
+        id: VideoLAN.VLC
+        source: winget
+
+    # 游戏平台
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      directives:
+        description: "安装 Steam"
+      settings:
+        id: Valve.Steam
+        source: winget
+
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      directives:
+        description: "安装 Epic Games Launcher"
+      settings:
+        id: EpicGames.EpicGamesLauncher
+        source: winget
+
+    # 通信工具
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      directives:
+        description: "安装 Discord"
+      settings:
+        id: Discord.Discord
+        source: winget
