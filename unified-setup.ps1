@@ -101,13 +101,13 @@ function Parse-YamlConfig {
     return $softwareList
 }
 
-# 改进的安装函数 - 双重验证安装状态
+# 改进的安装函数 - 修复显示格式
 function Install-WithProgress {
     param(
         [string]$SoftwareId,
         [string]$SoftwareName,
         [string[]]$UninstallNames,
-        [int]$TimeoutSeconds = 300
+        [int]$TimeoutSeconds = 600  # 增加到10分钟
     )
     
     Write-Host "📥 开始安装: $SoftwareName..." -ForegroundColor Green
@@ -135,13 +135,15 @@ function Install-WithProgress {
             $elapsed = ((Get-Date) - $startTime).TotalSeconds
             if ($elapsed -lt ($TimeoutSeconds * 2 / 3)) {
                 if ($phase -ne 1) {
-                    Write-Host "`n✅ 下载完成，开始安装..." -ForegroundColor Green
+                    Write-Host ""  # 确保换行
+                    Write-Host "✅ 下载完成，开始安装..." -ForegroundColor Green
                     $phase = 2
                 }
                 Write-Host "`r🌐 下载中$progress" -NoNewline -ForegroundColor Cyan
             } else {
                 if ($phase -ne 2) {
-                    Write-Host "`n🔄 开始安装..." -ForegroundColor Yellow
+                    Write-Host ""  # 确保换行
+                    Write-Host "🔄 开始安装..." -ForegroundColor Yellow
                     $phase = 2
                 }
                 Write-Host "`r🔧 安装中$progress" -NoNewline -ForegroundColor Yellow
@@ -150,7 +152,7 @@ function Install-WithProgress {
             Start-Sleep -Seconds 1
         }
         
-        Write-Host ""  # 换行
+        Write-Host ""  # 强制换行，结束进度显示
         
         if (-not $process.HasExited) {
             # 超时处理
@@ -168,7 +170,7 @@ function Install-WithProgress {
             if ($exitCode -eq 0 -or $actuallyInstalled) {
                 # 安装成功（通过退出代码或实际验证）
                 if ($exitCode -ne 0 -and $actuallyInstalled) {
-                    Write-Host "⚠️  Winget 报告失败但软件已安装成功（常见于系统组件如 OneDrive）" -ForegroundColor Yellow
+                    Write-Host "⚠️  Winget 报告失败但软件已安装成功" -ForegroundColor Yellow
                 }
                 Write-Host "✅ $SoftwareName 安装成功" -ForegroundColor Green
                 return $true
@@ -197,6 +199,7 @@ function Install-WithProgress {
         }
         
     } catch {
+        Write-Host ""  # 强制换行
         Write-Host "❌ $SoftwareName 安装异常: $($_.Exception.Message)" -ForegroundColor Red
         Write-Host "💡 解决方案: 尝试手动安装或检查系统环境" -ForegroundColor Yellow
         
@@ -247,22 +250,6 @@ function Test-SoftwareInstalled {
                 }
             } catch {
                 # 静默处理错误
-            }
-        }
-    }
-    
-    # 方法3: 检查特定系统组件（如 OneDrive）
-    if ($SoftwareId -eq "Microsoft.OneDrive") {
-        # OneDrive 是系统组件，检查其可执行文件是否存在
-        $oneDrivePaths = @(
-            "$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe",
-            "$env:ProgramFiles\Microsoft OneDrive\OneDrive.exe",
-            "$env:ProgramFiles(x86)\Microsoft OneDrive\OneDrive.exe"
-        )
-        
-        foreach ($path in $oneDrivePaths) {
-            if (Test-Path $path) {
-                return $true
             }
         }
     }
@@ -364,7 +351,7 @@ function Process-Software {
     }
     
     # 使用改进的安装函数（传入 UninstallNames 用于双重验证）
-    return Install-WithProgress -SoftwareId $id -SoftwareName $name -UninstallNames $uninstallNames -TimeoutSeconds 300
+    return Install-WithProgress -SoftwareId $id -SoftwareName $name -UninstallNames $uninstallNames -TimeoutSeconds 600
 }
 
 # 主执行逻辑
@@ -386,9 +373,9 @@ try {
     }
     
     Write-Host "🎯 找到 $totalSoftware 个软件待处理" -ForegroundColor Green
-    Write-Host "⏱️  每个软件安装超时时间: 5分钟" -ForegroundColor Cyan
+    Write-Host "⏱️  每个软件安装超时时间: 10分钟" -ForegroundColor Cyan
     Write-Host "💡 如果安装卡住，可以按 Ctrl+C 中断当前安装" -ForegroundColor Yellow
-    Write-Host "💡 注意: 某些系统组件（如 OneDrive）可能报告失败但实际安装成功" -ForegroundColor Yellow
+    Write-Host "💡 注意: 大型软件（如微信）下载可能需要较长时间" -ForegroundColor Yellow
     
     # 按顺序处理每个软件
     $successCount = 0
@@ -429,7 +416,7 @@ try {
         
         Write-Host "`n💡 失败可能原因:" -ForegroundColor Yellow
         Write-Host "   - 网络连接问题" -ForegroundColor White
-        Write-Host "   - 软件包不存在或版本不兼容" -ForegroundColor White
+        Write-Host "   - 软件包下载超时" -ForegroundColor White
         Write-Host "   - 系统权限不足" -ForegroundColor White
         Write-Host "   - 安装包损坏" -ForegroundColor White
         Write-Host "`n💡 解决方案:" -ForegroundColor Yellow
