@@ -1,7 +1,4 @@
 # unified-setup.ps1 - 统一配置的一键重装脚本
-param(
-    [string]$ConfigFile = "software-config.yaml"
-)
 
 Write-Host "🚀 开始统一配置部署..." -ForegroundColor Cyan
 
@@ -12,7 +9,7 @@ if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# 内置软件配置（作为默认配置）
+# 内置软件配置
 $DefaultConfig = @"
 # 统一软件配置列表
 # 只需维护这个列表，脚本会自动处理安装和重装
@@ -26,7 +23,7 @@ software:
     name: Google Chrome
     uninstall_names: ["Google Chrome"]
 
-   - id: Tencent.QQ.NT
+  - id: Tencent.QQ.NT
     name: QQ
     uninstall_names: ["QQ"]
 
@@ -181,19 +178,10 @@ function Process-Software {
 # 主执行逻辑
 try {
     # 读取配置
-    Write-Host "📋 读取软件配置..." -ForegroundColor Yellow
+    Write-Host "📋 读取内置配置..." -ForegroundColor Yellow
     
-    if (Test-Path $ConfigFile) {
-        Write-Host "📁 使用外部配置文件: $ConfigFile" -ForegroundColor Cyan
-        $yamlContent = Get-Content $ConfigFile -Raw
-    } else {
-        Write-Host "📁 使用内置默认配置" -ForegroundColor Cyan
-        $yamlContent = $DefaultConfig
-        
-        # 保存默认配置到文件，方便用户修改
-        $DefaultConfig | Out-File -FilePath "software-config.yaml" -Encoding UTF8
-        Write-Host "💡 默认配置已保存到 software-config.yaml，您可以修改此文件来自定义软件列表" -ForegroundColor Yellow
-    }
+    # 直接使用内置配置
+    $yamlContent = $DefaultConfig
     
     # 解析配置
     $softwareList = Parse-YamlConfig -YamlContent $yamlContent
@@ -238,8 +226,7 @@ try {
     }
     
     Write-Host "`n💡 提示:" -ForegroundColor Yellow
-    Write-Host "   修改 software-config.yaml 文件可以自定义软件列表" -ForegroundColor White
-    Write-Host "   下次运行本脚本时会自动使用修改后的配置" -ForegroundColor White
+    Write-Host "   修改脚本内的 `$DefaultConfig` 变量可以自定义软件列表" -ForegroundColor White
     
 } catch {
     Write-Host "❌ 脚本执行出错: $($_.Exception.Message)" -ForegroundColor Red
