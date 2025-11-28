@@ -101,20 +101,18 @@ function Parse-YamlConfig {
     return $softwareList
 }
 
-# 简化的安装函数（不使用后台作业）
+# 改进的安装函数 - 双重验证安装状态
 function Install-WithProgress {
     param(
         [string]$SoftwareId,
         [string]$SoftwareName,
+        [string[]]$UninstallNames,
         [int]$TimeoutSeconds = 300
     )
     
     Write-Host "📥 开始安装: $SoftwareName..." -ForegroundColor Green
     
     try {
-        # 创建临时文件来记录安装状态
-        $tempFile = [System.IO.Path]::GetTempFileName()
-        
         # 启动安装进程
         $process = Start-Process -FilePath "winget" -ArgumentList @(
             "install", "--id", $SoftwareId, "--source", "winget", "--silent",
@@ -164,28 +162,33 @@ function Install-WithProgress {
             # 获取退出代码
             $exitCode = $process.ExitCode
             
-            if ($exitCode -eq 0) {
-                Write-Host "✅ $SoftwareName 下载并安装成功" -ForegroundColor Green
+            # 双重验证：检查退出代码 + 实际验证软件是否安装成功
+            $actuallyInstalled = Test-SoftwareInstalled -SoftwareId $SoftwareId -UninstallNames $UninstallNames
+            
+            if ($exitCode -eq 0 -or $actuallyInstalled) {
+                # 安装成功（通过退出代码或实际验证）
+                if ($exitCode -ne 0 -and $actuallyInstalled) {
+                    Write-Host "⚠️  Winget 报告失败但软件已安装成功（常见于系统组件如 OneDrive）" -ForegroundColor Yellow
+                }
+                Write-Host "✅ $SoftwareName 安装成功" -ForegroundColor Green
                 return $true
             } else {
+                # 安装失败
                 Write-Host "❌ $SoftwareName 安装失败，退出代码: $exitCode" -ForegroundColor Red
                 
                 # 根据退出代码提供更多信息
                 switch ($exitCode) {
                     0x8A150011 { 
                         Write-Host "💡 提示: 软件可能已安装或存在冲突" -ForegroundColor Yellow
-                        Write-Host "💡 解决方案: 尝试手动卸载后重新安装" -ForegroundColor White
                     }
                     0x8A150004 { 
                         Write-Host "💡 提示: 找不到指定的软件包" -ForegroundColor Yellow
-                        Write-Host "💡 解决方案: 检查软件ID是否正确" -ForegroundColor White
                     }
                     0x8A150007 { 
                         Write-Host "💡 提示: 安装被用户取消" -ForegroundColor Yellow
                     }
                     default { 
                         Write-Host "💡 提示: 请检查网络连接和系统权限" -ForegroundColor Yellow
-                        Write-Host "💡 解决方案: 以管理员身份运行或检查防火墙设置" -ForegroundColor White
                     }
                 }
                 
@@ -193,14 +196,17 @@ function Install-WithProgress {
             }
         }
         
-        # 清理临时文件
-        if (Test-Path $tempFile) {
-            Remove-Item $tempFile -Force
-        }
-        
     } catch {
         Write-Host "❌ $SoftwareName 安装异常: $($_.Exception.Message)" -ForegroundColor Red
         Write-Host "💡 解决方案: 尝试手动安装或检查系统环境" -ForegroundColor Yellow
+        
+        # 即使有异常，也检查是否实际安装成功
+        $actuallyInstalled = Test-SoftwareInstalled -SoftwareId $SoftwareId -UninstallNames $UninstallNames
+        if ($actuallyInstalled) {
+            Write-Host "✅ $SoftwareName 实际上已安装成功" -ForegroundColor Green
+            return $true
+        }
+        
         return $false
     }
 }
@@ -228,7 +234,8 @@ function Test-SoftwareInstalled {
             try {
                 $uninstallPaths = @(
                     "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
-                    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+                    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
                 )
                 
                 foreach ($path in $uninstallPaths) {
@@ -240,6 +247,22 @@ function Test-SoftwareInstalled {
                 }
             } catch {
                 # 静默处理错误
+            }
+        }
+    }
+    
+    # 方法3: 检查特定系统组件（如 OneDrive）
+    if ($SoftwareId -eq "Microsoft.OneDrive") {
+        # OneDrive 是系统组件，检查其可执行文件是否存在
+        $oneDrivePaths = @(
+            "$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe",
+            "$env:ProgramFiles\Microsoft OneDrive\OneDrive.exe",
+            "$env:ProgramFiles(x86)\Microsoft OneDrive\OneDrive.exe"
+        )
+        
+        foreach ($path in $oneDrivePaths) {
+            if (Test-Path $path) {
+                return $true
             }
         }
     }
@@ -278,7 +301,8 @@ function Uninstall-Software {
                 # 查找卸载命令
                 $uninstallPaths = @(
                     "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
-                    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+                    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
                 )
                 
                 foreach ($path in $uninstallPaths) {
@@ -339,8 +363,8 @@ function Process-Software {
         Write-Host "🆕 软件未安装，直接安装..." -ForegroundColor Cyan
     }
     
-    # 使用简化的安装函数
-    return Install-WithProgress -SoftwareId $id -SoftwareName $name -TimeoutSeconds 300
+    # 使用改进的安装函数（传入 UninstallNames 用于双重验证）
+    return Install-WithProgress -SoftwareId $id -SoftwareName $name -UninstallNames $uninstallNames -TimeoutSeconds 300
 }
 
 # 主执行逻辑
@@ -364,6 +388,7 @@ try {
     Write-Host "🎯 找到 $totalSoftware 个软件待处理" -ForegroundColor Green
     Write-Host "⏱️  每个软件安装超时时间: 5分钟" -ForegroundColor Cyan
     Write-Host "💡 如果安装卡住，可以按 Ctrl+C 中断当前安装" -ForegroundColor Yellow
+    Write-Host "💡 注意: 某些系统组件（如 OneDrive）可能报告失败但实际安装成功" -ForegroundColor Yellow
     
     # 按顺序处理每个软件
     $successCount = 0
